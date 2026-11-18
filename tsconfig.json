@@ -1,0 +1,14 @@
+{
+  // The engine rewrites .claude-plugin/types/ on every load (and gitignores it),
+  // so this file only borrows its compiler options and names what to check.
+  // Scope: code the engine loads. cli/ runs on Node and is not checked against
+  // the mod's environment; test/engine is typed by the testing kit separately.
+  "extends": "./.claude-plugin/types/tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noImplicitAny": false,
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["hooks/**/*.mjs", "src/**/*.mjs"]
+}

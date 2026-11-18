@@ -1,0 +1,29 @@
+{
+  "name": "cc-context",
+  "version": "0.7.3",
+  "private": true,
+  "type": "module",
+  "description": "Context and subagent insight for Claude Code: a live band, a /ccx dashboard, a pane, and an offline transcript analyzer.",
+  "scripts": {
+    "test": "node --test test/estimate.test.mjs test/svg.test.mjs test/chart.test.mjs test/cli.test.mjs test/mod.test.mjs",
+    "test:engine": "claude plugin test .",
+    "test:live": "node test/live/run.mjs",
+    "verify": "npm run privacy && npm run typecheck && npm test && npm run test:engine",
+    "report": "node cli/ccx.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "privacy": "bash scripts/privacy-check.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "author": "madqxy",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/madqxy/CC-Context",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/madqxy/CC-Context.git"
+  }
+}

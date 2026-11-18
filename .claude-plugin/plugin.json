@@ -1,0 +1,20 @@
+{
+  "name": "cc-context",
+  "version": "0.7.3",
+  "description": "Context and subagent insight for Claude Code: a live context band with the host-reported breakdown, a dockable pane (composition / trend / subagents / browser), a /ccx dashboard, and an offline transcript analyzer.",
+  "author": {
+    "name": "madqxy",
+    "url": "https://github.com/madqxy"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "context",
+    "tokens",
+    "statusline",
+    "subagents",
+    "observability"
+  ],
+  "homepage": "https://github.com/madqxy/CC-Context",
+  "repository": "https://github.com/madqxy/CC-Context",
+  "icon": "./assets/icon.png"
+}

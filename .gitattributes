@@ -1,0 +1,12 @@
+# Keep one line ending in the repository and on checkout: the shell scripts here
+# have to run on Linux/macOS and under Git Bash on Windows, where a stray CR
+# breaks the shebang and every `case` statement.
+* text=auto eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf
+*.ts text eol=lf
+
+# Raster assets must not be normalized.
+*.png binary
+*.jpg binary
+*.zip binary

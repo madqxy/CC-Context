@@ -1,0 +1,11 @@
+﻿node_modules/
+*.log
+report.html
+docs/samples/
+.DS_Store
+.claude/cc-context/
+.claude-plugin/types/
+.claude/settings.local.json
+.tsconfig.fallback.json
+.typecheck-stub.d.ts
+

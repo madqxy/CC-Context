@@ -1,0 +1,12 @@
+{
+  "note": "示例价格（USD / 百万 Token），务必按你的合同或官网核对；缓存读按输入价 0.1 倍、缓存写按 1.25 倍估算",
+  "currency": "USD",
+  "cacheReadMultiplier": 0.1,
+  "cacheWriteMultiplier": 1.25,
+  "models": [
+    { "match": "opus", "input": 15, "output": 75 },
+    { "match": "sonnet", "input": 3, "output": 15 },
+    { "match": "haiku", "input": 1, "output": 5 }
+  ],
+  "default": { "input": 3, "output": 15 }
+}
