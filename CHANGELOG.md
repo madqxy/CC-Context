@@ -2,6 +2,11 @@
 
 版本号与 `.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、`package.json` 三处保持一致。
 
+## 0.7.4 — 2026-11-19
+
+- 修复：编队里的每一行都显示 `general-purpose`。成因是 Agent 调用常常不带 `subagent_type`（引擎默认填 `general-purpose`），而名称列只认类型。现在名称按 `name` → 真正选定的类型 → 任务描述的顺序取值，默认类型不再当作身份；`agent.spawn` 上报的 `subagentType` 按 `tool_use_id` 精确并回启动记录，`ⓘ` 里新增类型、名称与宿主 `kind`。
+- 测试：引擎侧新增「未命名子代理显示任务而不是默认类型」「agent.spawn 补上调用里缺的类型」两条，共 34 个。
+
 ## 0.7.3 — 2026-11-18
 
 - 工程：`typescript` 进 devDependencies（运行时依旧零依赖），`npm install` 后 `npm run typecheck` 开箱可用；`package-lock.json` 一并提交。typecheck 默认静默，`--verbose` 才说明用的是引擎类型还是 fallback。

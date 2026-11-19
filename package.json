@@ -1,6 +1,6 @@
 {
   "name": "cc-context",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "private": true,
   "type": "module",
   "description": "Context and subagent insight for Claude Code: a live band, a /ccx dashboard, a pane, and an offline transcript analyzer.",

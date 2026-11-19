@@ -64,6 +64,10 @@ const AGENT_IDLE_MS = 90000;
 const MAX_AGENTS = 60;
 const MAX_LAUNCHES = 30;
 const LAUNCH_TOOLS = ["Agent", "Task", "Workflow"];
+// The Agent tool's subagent_type is optional, and the engine fills in one of
+// these when the caller leaves it out. A generic type names nothing, so the row
+// shows the agent's own name (or what it was asked to do) instead.
+const GENERIC_AGENT_TYPES = ["general-purpose", "general purpose", "general", "default", "subagent"];
 const TABS = [
   { id: "composition", label: "组成", hotkey: "1" },
   { id: "trend", label: "趋势", hotkey: "2" },
@@ -76,7 +80,7 @@ const TABS = [
  * One model request of the main loop. total = input + cacheRead + cacheCreate: that
  * request's window, not a running sum.
  *
- * @typedef {{ at: number, tool: string, type: string, description: string, agentId: string, parentAgentId: string, doneAt: number, isError: boolean, isAsync?: boolean, report?: { tokens: number, calls: number, ms: number } }} Launch
+ * @typedef {{ at: number, tool: string, toolUseId: string, name: string, type: string, description: string, agentId: string, parentAgentId: string, doneAt: number, isError: boolean, isAsync?: boolean, spawn?: { type: string, isFork: boolean, isBackground: boolean, model: string } | null, report?: { tokens: number, calls: number, ms: number } }} Launch
  * An Agent/Task/Workflow call, from the loop that made it.
  *
  * @typedef {{ id: string, firstAt: number, lastAt: number, doneAt: number, calls: number, errors: number, steps: number, input: number, output: number, cacheRead: number, cacheCreate: number, tokens: number, lastTool: string, lastSubject: string, lastModel: string, isDone: boolean, launch: Launch | null }} AgentRow
@@ -244,6 +248,14 @@ export function register(on) {
 
   on("prompt.section", async ($, e, next) => {
     noteSection(e);
+    return next(e);
+  });
+
+  // agent.spawn is where the engine says which agent actually started: the tool
+  // call carries only the caller's words, and the subagent_type it may have
+  // omitted is resolved here. It fires before the tool returns.
+  on("agent.spawn", async ($, e, next) => {
+    noteAgentSpawn(e);
     return next(e);
   });
 
@@ -862,6 +874,10 @@ function beginLaunch(e) {
   const launch = {
     at: Date.now(),
     tool: tool,
+    // The engine's own id for this call: agent.spawn repeats it, which pairs the
+    // two events exactly instead of by order.
+    toolUseId: pickString(e, ["tool_use_id"]),
+    name: pickString(e, ["name"]),
     type: pickString(e, ["subagent_type", "agentType", "agent", "type"]),
     description: pickString(e, ["description", "prompt", "query", "task"]).replace(/\s+/g, " ").slice(0, 80),
     agentId: "",
@@ -869,6 +885,7 @@ function beginLaunch(e) {
     parentAgentId: typeof e.agentId === "string" ? e.agentId : "",
     doneAt: 0,
     isError: false,
+    spawn: null,
   };
   state.launches.push(launch);
   while (state.launches.length > MAX_LAUNCHES) {
@@ -900,12 +917,53 @@ function settleLaunch(launch, settled) {
   if (settled.status === "async_launched" || settled.status === "remote_launched") {
     launch.isAsync = true;
   }
+  // Some builds report the resolved type on the result too; it is only useful
+  // when the caller did not choose one and agent.spawn has not spoken yet.
+  if (!launch.type && typeof settled.agentType === "string" && settled.agentType.trim()) {
+    launch.type = settled.agentType.trim();
+  }
   if (typeof settled.totalTokens === "number" && settled.status === "completed") {
     launch.report = {
       tokens: settled.totalTokens,
       calls: num(settled.totalToolUseCount),
       ms: num(settled.totalDurationMs),
     };
+  }
+}
+
+// noteAgentSpawn records what the engine says about the agent it just started:
+// the pair's own id ties it to the call that asked for it, and the resolved
+// subagent type lives here rather than in the tool call (which may omit it).
+// A resumed agent carries e.resume: it is the same agent running again.
+function noteAgentSpawn(e) {
+  if (!e || e.resume) {
+    return;
+  }
+  const toolUseId = typeof e.tool_use_id === "string" ? e.tool_use_id : "";
+  let launch = null;
+  for (let index = state.launches.length - 1; index >= 0; index -= 1) {
+    const candidate = state.launches[index];
+    if (candidate.spawn) {
+      continue;
+    }
+    if (toolUseId && candidate.toolUseId && candidate.toolUseId !== toolUseId) {
+      continue;
+    }
+    launch = candidate;
+    break;
+  }
+  if (!launch) {
+    // A teammate or a workflow agent: no Agent call of ours asked for it.
+    return;
+  }
+  launch.spawn = {
+    type: typeof e.subagentType === "string" ? e.subagentType : "",
+    isFork: e.fork === true,
+    isBackground: e.background === true,
+    model: typeof e.model === "string" ? e.model : "",
+  };
+  if (!launch.name && typeof e.name === "string" && e.name.trim()) {
+    launch.name = e.name.trim();
   }
 }
 
@@ -980,11 +1038,14 @@ function agentRows() {
       launch: {
         at: held.seenAt,
         tool: "Agent",
+        toolUseId: "",
+        name: typeof info.name === "string" ? info.name : "",
         type: String(info.type || ""),
         description: String(info.description || "").slice(0, 80),
         agentId: id,
         doneAt: listedStatus(info) === "done" ? Date.now() : 0,
         isError: listedStatus(info) === "failed",
+        spawn: null,
       },
       status: listedStatus(info) || "running",
     });
@@ -1084,17 +1145,38 @@ function agentGlyph(status) {
   return "✓";
 }
 
+// A type the caller actually chose names the agent; the engine's fallback does
+// not ("general-purpose" on every row says nothing).
+function specificAgentType(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  return GENERIC_AGENT_TYPES.indexOf(text.toLowerCase()) >= 0 ? "" : text;
+}
+
+// agentName is the row's identity, in the order that tells rows apart: the name
+// the caller gave, then a type someone chose, then the task's own words. The
+// engine's generic type is skipped rather than repeated on every line.
 function agentName(entry) {
   const launch = entry.launch;
-  if (launch && launch.type) {
-    return launch.type;
-  }
   const listed = entry.row ? state.agentInfo[entry.row.id] : null;
-  if (listed && listed.info.type) {
-    return String(listed.info.type);
+  const info = listed && listed.info ? listed.info : null;
+
+  const named = (launch && launch.name) || (info && typeof info.name === "string" ? info.name.trim() : "");
+  if (named) {
+    return String(named);
   }
-  if (entry.row && entry.row.lastModel) {
-    return entry.row.lastModel.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+  const typed =
+    specificAgentType(launch && launch.spawn && launch.spawn.type) ||
+    specificAgentType(launch && launch.type) ||
+    specificAgentType(info && info.type);
+  if (typed) {
+    return typed;
+  }
+  const described = (info && (info.label || info.description)) || (launch && launch.description) || "";
+  if (described) {
+    return clip(String(described), 16);
   }
   return "子代理";
 }
@@ -1181,13 +1263,17 @@ function agentLine(entry, columns, options) {
   const prefix = curvePrefix(entry.prefix);
   // The fold slot sits before the node so ▾/▸ lines up with the branch it opens.
   const fold = typeof opts.foldGlyph === "string" ? opts.foldGlyph : " ";
-  // 16 columns fits the default subagent type ("general-purpose") whole.
-  const head = "  " + prefix + fold + " " + agentGlyph(entry.status) + " " + padRight(clip(agentName(entry), 16), 16);
+  const name = agentName(entry);
+  const purpose = agentPurpose(entry);
+  // 16 columns holds a name, or a chosen type such as "Explore", whole.
+  const head = "  " + prefix + fold + " " + agentGlyph(entry.status) + " " + padRight(clip(name, 16), 16);
   const tail = pad(counts, 15) + " " + age;
   const hiddenText = num(opts.hidden) > 0 ? " (+" + num(opts.hidden) + ")" : "";
   const room = Math.max(0, columns - displayWidth(head) - displayWidth(tail) - 2);
+  // When the name fell back to the task's own words, do not print them twice.
+  const detail = purpose && purpose !== name ? purpose : agentWork(entry);
   const purposeText = room > 4
-    ? clip(agentPurpose(entry) || agentWork(entry), Math.max(0, room - displayWidth(hiddenText))) + hiddenText
+    ? clip(detail, Math.max(0, room - displayWidth(hiddenText))) + hiddenText
     : hiddenText.trim();
   const line = purposeText ? head + " " + padRight(purposeText, room) + " " + tail : head + " " + tail;
   return clip(line, Math.max(20, columns));
@@ -1579,6 +1665,17 @@ function agentDetailLines(entry, columns) {
   const report = entry.launch && entry.launch.report;
   if (report) {
     facts.push("宿主报告 " + human(report.tokens) + " · " + report.calls + " 次 · " + humanDuration(report.ms));
+  }
+  const spawn = entry.launch && entry.launch.spawn;
+  const type = spawn && spawn.type ? spawn.type : entry.launch && entry.launch.type;
+  if (type) {
+    facts.push("类型 " + type + (spawn && spawn.isFork ? "（fork）" : ""));
+  }
+  if (entry.launch && entry.launch.name) {
+    facts.push("名称 " + entry.launch.name);
+  }
+  if (listed && listed.info.kind) {
+    facts.push(String(listed.info.kind));
   }
   if (listed && listed.info.status) {
     facts.push("宿主状态 " + listed.info.status);
@@ -2234,9 +2331,28 @@ function dumpProbe() {
       state: state.agentListState,
       entries: Object.keys(state.agentInfo).map((id) => {
         const info = state.agentInfo[id].info;
-        return { id: id, status: info.status, type: info.type, parentId: info.parentId, spawnedBy: info.spawnedBy };
+        return {
+          id: id,
+          name: info.name,
+          label: info.label,
+          type: info.type,
+          kind: info.kind,
+          status: info.status,
+          taskStatus: info.taskStatus,
+          parentId: info.parentId,
+          spawnedBy: info.spawnedBy,
+        };
       }),
     },
+    launches: state.launches.slice(-10).map((launch) => ({
+      tool: launch.tool,
+      toolUseId: launch.toolUseId,
+      name: launch.name,
+      type: launch.type,
+      spawnType: launch.spawn ? launch.spawn.type : "",
+      agentId: launch.agentId,
+      done: launch.doneAt > 0,
+    })),
     compactions: compactionCount(),
     compactionLog: state.compactions.slice(-10),
     sections: Object.keys(state.sections).map((name) => ({ name: name, tokens: state.sections[name] })),

@@ -158,6 +158,10 @@ function worldOf(
   }))
   on('session.messages', () => ({ value: MESSAGES }))
   on('agent.list', () => ({ value: world.agents }))
+  // The engine has no default implementation for the spawn event; a test fires
+  // it explicitly, and the mod's hook runs before this one. The event's result is
+  // the model the agent will use (or a refusal), not a free-form value.
+  on('agent.spawn', () => ({ model: 'claude-sonnet-4-5-20250929' }))
   on('fs.write', (_h: unknown, e: { path: string; text: string }) => {
     world.files.set(e.path, e.text)
     return { value: undefined }
@@ -539,7 +543,7 @@ describe('subagents', () => {
     await step($, 0)
 
     // The parent asks for a child; its call stays open while the child runs.
-    void $.tool.call({ tool: 'Agent', subagent_type: 'general-purpose', description: 'find the estimator tests' })
+    void $.tool.call({ tool: 'Agent', subagent_type: 'general-purpose', name: 'estimator-scout', description: 'find the estimator tests' })
     await world.launched()
     // The child's calls and requests carry the id the parent never sees.
     await $.tool.call({ tool: 'Read', file_path: '/work/src/estimate.test.mjs', agentId: 'agent-1' })
@@ -554,7 +558,8 @@ describe('subagents', () => {
     const text = textOf(await $.ui.render(pane(80)))
 
     expect(text).toContain('编队')
-    expect(text, 'the launch names the child').toContain('general-purpose')
+    expect(text, 'the name the caller gave names the row').toContain('estimator-scout')
+    expect(text, 'the engine default type is not shown as an identity').not.toContain('general-purpose')
     expect(text, 'the launch also says what the child was asked to do').toContain('find the estimator tests')
     expect(text, 'its calls are counted').toContain('2调')
     expect(text, 'a finished child reads as done').toContain('完成 1')
@@ -566,6 +571,38 @@ describe('subagents', () => {
     expect(probe.agents[0].calls).toBe(2)
     expect(probe.agents[0].steps).toBe(1)
     expect(probe.agents[0].launch.type).toBe('general-purpose')
+  })
+
+  test('an unnamed child reads as its task, not as the engine default type', async ($, on) => {
+    const world = await start($, on)
+    await step($, 0)
+    void $.tool.call({ tool: 'Agent', subagent_type: 'general-purpose', description: 'sweep the docs' })
+    await world.launched()
+    world.releaseLaunch()
+
+    await $.command.run(command('panel'))
+    await $.ui.render(pane(90))
+    await $.ui.press({ plugin: PLUGIN, key: 'tab:agents' })
+    const text = textOf(await $.ui.render(pane(90)))
+    expect(text, 'the task is what tells this row apart').toContain('sweep the docs')
+    expect(text, 'the engine default is not an identity').not.toContain('general-purpose')
+  })
+
+  test('agent.spawn supplies the type the tool call left out', async ($, on) => {
+    const world = await start($, on)
+    await step($, 0)
+    void $.tool.call({ tool: 'Agent', tool_use_id: 'toolu_1', description: 'dig one' })
+    await world.launched()
+    // The call carried no subagent_type; the engine resolves it when the agent starts.
+    await $.agent.spawn({ tool_use_id: 'toolu_1', subagentType: 'Explore', background: false, fork: false })
+    world.releaseLaunch()
+
+    await $.command.run(command('panel'))
+    await $.ui.render(pane(90))
+    await $.ui.press({ plugin: PLUGIN, key: 'tab:agents' })
+    const text = textOf(await $.ui.render(pane(90)))
+    expect(text, 'the resolved type names the row').toContain('Explore')
+    expect(text).not.toContain('general-purpose')
   })
 
   test('a child still working is running, and the band says how many', async ($, on) => {

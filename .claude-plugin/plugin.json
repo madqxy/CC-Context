@@ -1,6 +1,6 @@
 {
   "name": "cc-context",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Context and subagent insight for Claude Code: a live context band with the host-reported breakdown, a dockable pane (composition / trend / subagents / browser), a /ccx dashboard, and an offline transcript analyzer.",
   "author": {
     "name": "madqxy",

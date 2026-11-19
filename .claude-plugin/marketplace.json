@@ -10,7 +10,7 @@
       "name": "cc-context",
       "source": "./",
       "description": "Context and subagent insight for Claude Code: a live context band with the host-reported breakdown, a dockable pane, a /ccx dashboard, and an offline transcript analyzer.",
-      "version": "0.7.3",
+      "version": "0.7.4",
       "license": "Apache-2.0",
       "keywords": [
         "context",
